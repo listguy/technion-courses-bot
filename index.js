@@ -1,0 +1,61 @@
+const puppeteer = require("puppeteer-extra");
+const reCaptchaPlugin = require("puppeteer-extra-plugin-recaptcha");
+require("dotenv").config();
+
+const { TECH_USERNAME, TECH_PASSWORD, COURSES_LIST, TWO_CAPTCHA_TOKEN } =
+  process.env;
+
+puppeteer.use(
+  reCaptchaPlugin({
+    provider: {
+      id: "2captcha",
+      token: TWO_CAPTCHA_TOKEN,
+    },
+    visualFeedback: true,
+  })
+);
+
+puppeteer
+  .launch({
+    // slowMo: 100,
+    // headless: false,
+    // defaultViewport: null,
+  })
+  .then(async (browser) => {
+    const page = await browser.newPage();
+
+    await page.goto("https://ug3.technion.ac.il/rishum/register");
+
+    page.setCookie({ name: "cart", value: COURSES_LIST });
+
+    await Promise.all([
+      page.waitForSelector("#username"),
+      page.waitForSelector("#password"),
+    ]);
+
+    await page.type("#username", TECH_USERNAME);
+    await page.type("#password", TECH_PASSWORD);
+
+    const { solved } = await page.solveRecaptchas();
+    console.log(`captcha solved? ${solved[0].isSolved}`);
+
+    if (!solved.length) {
+      console.log("captcha failed");
+      await page.waitForTimeout(3000);
+      await browser.close();
+    }
+
+    await Promise.all([page.click("[type=submit]"), page.waitForNavigation()]);
+
+    await page.click(".btn-large");
+
+    const status = await page.$eval(
+      ".messages",
+      (messageDiv) => messageDiv.firstElementChild.innerText
+    );
+
+    console.log(`**${status.split("").reverse().join("")}**`);
+
+    await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
+    await browser.close();
+  });
