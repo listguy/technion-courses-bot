@@ -1,4 +1,4 @@
-const puppeteer = require("puppeteer-extra");
+const puppeteer = require("puppeteer");
 const reCaptchaPlugin = require("puppeteer-extra-plugin-recaptcha");
 require("dotenv").config();
 
@@ -18,44 +18,80 @@ puppeteer.use(
 puppeteer
   .launch({
     // slowMo: 100,
-    // headless: false,
+    headless: false,
     // defaultViewport: null,
   })
   .then(async (browser) => {
     const page = await browser.newPage();
+    const registered = false;
 
     await page.goto("https://ug3.technion.ac.il/rishum/register");
 
     page.setCookie({ name: "cart", value: COURSES_LIST });
 
-    await Promise.all([
-      page.waitForSelector("#username"),
-      page.waitForSelector("#password"),
-    ]);
+    await signIn(page);
 
-    await page.type("#username", TECH_USERNAME);
-    await page.type("#password", TECH_PASSWORD);
+    while (!registered) {
+      try {
+        await page.click(".btn-large");
 
-    const { solved } = await page.solveRecaptchas();
-    console.log(`captcha solved? ${solved[0].isSolved}`);
+        await page.waitForSelector(".messages");
 
-    if (!solved.length) {
-      console.log("captcha failed");
-      await page.waitForTimeout(3000);
-      await browser.close();
+        await page.goto(
+          "https://ug3.technion.ac.il/rishum/weekplan.php?RGS=&SEM=202101"
+        );
+
+        const registeredCourses = await page.$$("table .schedule-registered");
+        console.log(registeredCourses.length);
+
+        if (registeredCourses.length === 18) {
+          registered = true;
+        }
+
+        // const status = await page.$eval(
+        //   ".messages",
+        //   (messageDiv) => messageDiv.firstElementChild.innerText
+        // );
+
+        // console.log(`**${status.split("").reverse().join("")}**`);
+
+        // await Promise.all([
+        //   page.click(".btn-danger"),
+        //   page.waitForNavigation(),
+        // ]);
+      } catch (e) {
+        console.log(e);
+        console.log("in catch");
+        await page.waitForTimeout(3000);
+        await page.goto("https://ug3.technion.ac.il/rishum/register");
+      }
+
+      // await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
+      // await browser.close();
     }
-
-    await Promise.all([page.click("[type=submit]"), page.waitForNavigation()]);
-
-    await page.click(".btn-large");
-
-    const status = await page.$eval(
-      ".messages",
-      (messageDiv) => messageDiv.firstElementChild.innerText
-    );
-
-    console.log(`**${status.split("").reverse().join("")}**`);
-
-    await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
-    await browser.close();
   });
+
+function openNewWindow() {
+  return page.goto("https://ug3.technion.ac.il/rishum/register");
+}
+
+async function signIn(page) {
+  await Promise.all([
+    page.waitForSelector("#username"),
+    page.waitForSelector("#password"),
+  ]);
+
+  await page.type("#username", TECH_USERNAME);
+  await page.type("#password", TECH_PASSWORD);
+
+  const { solved } = await page.solveRecaptchas();
+  console.log(`captcha solved? ${solved[0].isSolved}`);
+
+  if (!solved.length) {
+    console.log("captcha failed");
+    await page.waitForTimeout(3000);
+    await browser.close();
+  }
+
+  await Promise.all([page.click("[type=submit]"), page.waitForNavigation()]);
+}
