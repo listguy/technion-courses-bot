@@ -95,3 +95,39 @@ async function signIn(page) {
 
   await Promise.all([page.click("[type=submit]"), page.waitForNavigation()]);
 }
+
+// fetches a list of all available groups for a course.
+// RETURN: a promise that fulfils with the list (empty list if courseNumber doesn't exists)
+function getGroupListForCourse(courseNumber) {
+  return fetch(
+    `https://ug3.technion.ac.il/rishum/course/${courseNumber}/202101`
+  )
+    .then((response) => response.json())
+    .then((html) =>
+      Array.from(html.matchAll(/<td class="hide-on-tablet">(\d\d)<\/td>/g)).map(
+        (match) => match[1]
+      )
+    );
+}
+
+// structures the groupList by priority
+// RETURN: an object containing the priority groups and rest of the groups separately
+function prioritizeGroupList(groupList, courseNumber, priorityGroupNumber) {
+  const priorityStruct = {
+    courseNumber,
+    priorityGroups: [],
+    restOfGroups: [],
+  };
+
+  groupList.forEach((current) => {
+    if (current === priorityGroupNumber) return;
+
+    if (current[0] === priorityGroupNumber[0]) {
+      priorityStruct.priorityGroups.push(current);
+    } else {
+      priorityStruct.restOfGroups.push(current);
+    }
+  });
+
+  return priorityStruct;
+}
