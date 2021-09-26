@@ -1,3 +1,4 @@
+const { default: axios } = require("axios");
 const puppeteer = require("puppeteer-extra");
 const reCaptchaPlugin = require("puppeteer-extra-plugin-recaptcha");
 require("dotenv").config();
@@ -16,20 +17,24 @@ puppeteer.use(
 
 puppeteer
   .launch({
-    // slowMo: 100,
+    slowMo: 100,
     headless: false,
     // defaultViewport: null,
   })
   .then(async (browser) => {
     const page = await browser.newPage();
     const registered = false;
-    const unregisteredCoursesArray = arrayFromCoursesListString(COURSES_LIST);
+    const originalCoursesArray = arrayFromCoursesListString(COURSES_LIST);
+    const coursesAndPrioritizedGroups = originalCoursesArray.slice();
+
+    let unregisteredCoursesArray = originalCoursesArray.slice();
 
     await page.goto("https://ug3.technion.ac.il/rishum/register");
 
-    page.setCookie({
+    await page.setCookie({
       name: "cart",
       value: stringFromCoursesListArray(unregisteredCoursesArray),
+      domain: ".technion.ac.il",
     });
 
     await signIn(page);
@@ -39,26 +44,58 @@ puppeteer
         await page.click(".btn-large");
 
         await page.waitForSelector(".messages");
+        const status = await page.$eval(".messages", (messageDiv) => messageDiv.firstElementChild.innerText);
+
+        if (status === " הרישום סגור. נסה במועד מאוחר יותר") {
+          await page.waitForTimeout(3000);
+          console.log("continuing to try");
+          continue;
+        }
 
         await page.goto("https://ug3.technion.ac.il/rishum/weekplan.php?RGS=&SEM=202101");
 
-        const numberOfRegisteredCourses = (await page.$$("table .schedule-registered")).length;
+        const registeredCourses = await page.$$eval(
+          ".exam-schedule tr > :first-child.schedule-registered",
+          (elements) =>
+            elements.map((element) => {
+              const {
+                groups: { course, priorityGroup },
+              } = element.innerHTML.match(/(?<course>\d*)-(?<priorityGroup>\d*)/);
 
-        if (numberOfRegisteredCourses === 18) {
+              return { course, priorityGroup };
+            })
+        );
+
+        if (registeredCourses.length === 5) {
           registered = true;
+          continue;
         }
 
-        // const status = await page.$eval(
-        //   ".messages",
-        //   (messageDiv) => messageDiv.firstElementChild.innerText
-        // );
+        const registeredCoursesNumbers = registeredCourses.map(({ course }) => course);
+        const failedToRegisterCourses = originalCoursesArray.filter(
+          (current) => !registeredCoursesNumbers.includes(current.course)
+        );
 
-        // console.log(`**${status.split("").reverse().join("")}**`);
+        unregisteredCoursesArray = failedToRegisterCourses.map((failedRegister) => {
+          const { course } = failedRegister;
+          const currentCourse = coursesAndPrioritizedGroups.find((current) => current.course === course);
+          const newPriorityGroup =
+            currentCourse.priorityGroups.shift() ?? currentCourse.restOfGroups.shift() ?? currentCourse.priorityGroup;
 
-        // await Promise.all([
-        //   page.click(".btn-danger"),
-        //   page.waitForNavigation(),
-        // ]);
+          currentCourse.priorityGroup = newPriorityGroup;
+
+          return { course, priorityGroup: newPriorityGroup };
+        });
+
+        console.log(unregisteredCoursesArray);
+
+        await page.setCookie({
+          name: "cart",
+          value: stringFromCoursesListArray(unregisteredCoursesArray),
+          domain: ".technion.ac.il",
+        });
+
+        await page.goto("https://ug3.technion.ac.il/rishum/register");
       } catch (e) {
         console.log(e);
         console.log("in catch");
@@ -66,8 +103,8 @@ puppeteer
         await page.goto("https://ug3.technion.ac.il/rishum/register");
       }
 
-      // await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
-      // await browser.close();
+      await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
+      await browser.close();
     }
   });
 
@@ -96,16 +133,17 @@ async function signIn(page) {
 // fetches a list of all available groups for a course.
 // RETURN: a promise that fulfils with the list (empty list if courseNumber doesn't exists)
 function getGroupListForCourse(courseNumber) {
-  return fetch(`https://ug3.technion.ac.il/rishum/course/${courseNumber}/202101`)
-    .then((response) => response.json())
-    .then((html) => Array.from(html.matchAll(/<td class="hide-on-tablet">(\d\d)<\/td>/g)).map((match) => match[1]));
+  return axios
+    .get(`https://ug3.technion.ac.il/rishum/course/${courseNumber}/202101`)
+    .then((response) =>
+      Array.from(response.data.matchAll(/<td class="hide-on-tablet">(\d\d)<\/td>/g)).map((match) => match[1])
+    );
 }
 
 // structures the groupList by priority
 // RETURN: an object containing the priority groups and rest of the groups separately
-function prioritizeGroupList(groupList, courseNumber, priorityGroupNumber) {
+function getPrioritizedGroupList(groupList, priorityGroupNumber) {
   const priorityStruct = {
-    courseNumber,
     priorityGroups: [],
     restOfGroups: [],
   };
@@ -121,6 +159,18 @@ function prioritizeGroupList(groupList, courseNumber, priorityGroupNumber) {
   });
 
   return priorityStruct;
+}
+
+// gets all groups for course, prioritizes them and attaches them to the course element
+// RETURN: same courseElement
+async function attachGroupLists(courseElement) {
+  const { course, priorityGroup } = courseElement;
+  const groupList = await getGroupListForCourse(course);
+  const { priorityGroups, restOfGroups } = getPrioritizedGroupList(groupList, priorityGroup);
+
+  courseElement.priorityGroups = priorityGroups;
+  courseElement.restOfGroups = restOfGroups;
+  return courseElement;
 }
 
 // transforms a courses list string into an array
