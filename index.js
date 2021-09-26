@@ -1,9 +1,8 @@
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
 const reCaptchaPlugin = require("puppeteer-extra-plugin-recaptcha");
 require("dotenv").config();
 
-const { TECH_USERNAME, TECH_PASSWORD, COURSES_LIST, TWO_CAPTCHA_TOKEN } =
-  process.env;
+const { TECH_USERNAME, TECH_PASSWORD, COURSES_LIST, TWO_CAPTCHA_TOKEN } = process.env;
 
 puppeteer.use(
   reCaptchaPlugin({
@@ -24,10 +23,14 @@ puppeteer
   .then(async (browser) => {
     const page = await browser.newPage();
     const registered = false;
+    const unregisteredCoursesArray = arrayFromCoursesListString(COURSES_LIST);
 
     await page.goto("https://ug3.technion.ac.il/rishum/register");
 
-    page.setCookie({ name: "cart", value: COURSES_LIST });
+    page.setCookie({
+      name: "cart",
+      value: stringFromCoursesListArray(unregisteredCoursesArray),
+    });
 
     await signIn(page);
 
@@ -37,14 +40,11 @@ puppeteer
 
         await page.waitForSelector(".messages");
 
-        await page.goto(
-          "https://ug3.technion.ac.il/rishum/weekplan.php?RGS=&SEM=202101"
-        );
+        await page.goto("https://ug3.technion.ac.il/rishum/weekplan.php?RGS=&SEM=202101");
 
-        const registeredCourses = await page.$$("table .schedule-registered");
-        console.log(registeredCourses.length);
+        const numberOfRegisteredCourses = (await page.$$("table .schedule-registered")).length;
 
-        if (registeredCourses.length === 18) {
+        if (numberOfRegisteredCourses === 18) {
           registered = true;
         }
 
@@ -76,10 +76,7 @@ function openNewWindow() {
 }
 
 async function signIn(page) {
-  await Promise.all([
-    page.waitForSelector("#username"),
-    page.waitForSelector("#password"),
-  ]);
+  await Promise.all([page.waitForSelector("#username"), page.waitForSelector("#password")]);
 
   await page.type("#username", TECH_USERNAME);
   await page.type("#password", TECH_PASSWORD);
@@ -99,15 +96,9 @@ async function signIn(page) {
 // fetches a list of all available groups for a course.
 // RETURN: a promise that fulfils with the list (empty list if courseNumber doesn't exists)
 function getGroupListForCourse(courseNumber) {
-  return fetch(
-    `https://ug3.technion.ac.il/rishum/course/${courseNumber}/202101`
-  )
+  return fetch(`https://ug3.technion.ac.il/rishum/course/${courseNumber}/202101`)
     .then((response) => response.json())
-    .then((html) =>
-      Array.from(html.matchAll(/<td class="hide-on-tablet">(\d\d)<\/td>/g)).map(
-        (match) => match[1]
-      )
-    );
+    .then((html) => Array.from(html.matchAll(/<td class="hide-on-tablet">(\d\d)<\/td>/g)).map((match) => match[1]));
 }
 
 // structures the groupList by priority
@@ -130,4 +121,24 @@ function prioritizeGroupList(groupList, courseNumber, priorityGroupNumber) {
   });
 
   return priorityStruct;
+}
+
+// transforms a courses list string into an array
+// RETURN: an array with {course, priorityGroup} elements
+function arrayFromCoursesListString(coursesListString) {
+  const coursesListArray = [];
+  for (let i = 0; i < coursesListString.length; i += 8) {
+    coursesListArray.push({
+      course: coursesListString.slice(i, i + 6),
+      priorityGroup: coursesListString.slice(i + 6, i + 8),
+    });
+  }
+
+  return coursesListArray;
+}
+
+// transforms a courses list array into a string
+// RETURN: a courses list string
+function stringFromCoursesListArray(coursesListArray) {
+  return coursesListArray.reduce((str, curr) => str.concat(curr.course + curr.priorityGroup), "");
 }
