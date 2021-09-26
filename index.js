@@ -25,9 +25,10 @@ puppeteer
     const page = await browser.newPage();
     const registered = false;
     const originalCoursesArray = arrayFromCoursesListString(COURSES_LIST);
-    const coursesAndPrioritizedGroups = originalCoursesArray.slice();
+    const originalCoursesAndPrioritizedGroups = await Promise.all(originalCoursesArray.map(attachGroupLists));
 
     let unregisteredCoursesArray = originalCoursesArray.slice();
+    const coursesAndPrioritizedGroups = originalCoursesArray.slice();
 
     await page.goto("https://ug3.technion.ac.il/rishum/register");
 
@@ -39,18 +40,18 @@ puppeteer
 
     await signIn(page);
 
-    while (!registered) {
+    while (!registered && !coursesAndPrioritizedGroups.every(allGroupsTested)) {
       try {
         await page.click(".btn-large");
 
         await page.waitForSelector(".messages");
         const status = await page.$eval(".messages", (messageDiv) => messageDiv.firstElementChild.innerText);
 
-        if (status === " הרישום סגור. נסה במועד מאוחר יותר") {
-          await page.waitForTimeout(3000);
-          console.log("continuing to try");
-          continue;
-        }
+        // if (status === " הרישום סגור. נסה במועד מאוחר יותר") {
+        //   await page.waitForTimeout(3000);
+        //   console.log("continuing to try");
+        //   continue;
+        // }
 
         await page.goto("https://ug3.technion.ac.il/rishum/weekplan.php?RGS=&SEM=202101");
 
@@ -67,6 +68,7 @@ puppeteer
         );
 
         if (registeredCourses.length === 5) {
+          console.log("~!!!!!!!!&%&^&");
           registered = true;
           continue;
         }
@@ -102,10 +104,13 @@ puppeteer
         await page.waitForTimeout(3000);
         await page.goto("https://ug3.technion.ac.il/rishum/register");
       }
-
-      await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
-      await browser.close();
     }
+    await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
+    await browser.close();
+    // console.log(
+    //   "Registered successfully to the following courses:" + prettyPrintCoursesAndGroups(coursesAndPrioritizedGroups)
+    // );
+    console.log(coursesAndPrioritizedGroups);
   });
 
 function openNewWindow() {
@@ -191,4 +196,9 @@ function arrayFromCoursesListString(coursesListString) {
 // RETURN: a courses list string
 function stringFromCoursesListArray(coursesListArray) {
   return coursesListArray.reduce((str, curr) => str.concat(curr.course + curr.priorityGroup), "");
+}
+
+function allGroupsTested(courseAndGroupsElement) {
+  console.log(!courseAndGroupsElement.priorityGroups.length && !courseAndGroupsElement.restOfGroups.length);
+  return !courseAndGroupsElement.priorityGroups.length && !courseAndGroupsElement.restOfGroups.length;
 }
