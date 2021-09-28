@@ -47,11 +47,11 @@ puppeteer
         await page.waitForSelector(".messages");
         const status = await page.$eval(".messages", (messageDiv) => messageDiv.firstElementChild.innerText);
 
-        // if (status === " הרישום סגור. נסה במועד מאוחר יותר") {
-        //   await page.waitForTimeout(3000);
-        //   console.log("continuing to try");
-        //   continue;
-        // }
+        if (status === " הרישום סגור. נסה במועד מאוחר יותר") {
+          await page.waitForTimeout(3000);
+          console.log("continuing to try");
+          continue;
+        }
 
         await page.goto("https://ug3.technion.ac.il/rishum/weekplan.php?RGS=&SEM=202101");
 
@@ -68,7 +68,6 @@ puppeteer
         );
 
         if (registeredCourses.length === 5) {
-          console.log("~!!!!!!!!&%&^&");
           registered = true;
           continue;
         }
@@ -99,17 +98,22 @@ puppeteer
 
         await page.goto("https://ug3.technion.ac.il/rishum/register");
       } catch (e) {
+        console.log("**********");
+        console.log("in catch, encountered the following error:");
         console.log(e);
-        console.log("in catch");
+        console.log("**********");
         await page.waitForTimeout(3000);
         await page.goto("https://ug3.technion.ac.il/rishum/register");
+
+        // should the system log me out, this might log me back in (please don't break)
+        if (page.url() === "https://ug3.technion.ac.il/rishum/login") {
+          await signIn(page);
+        }
       }
     }
     await Promise.all([page.click(".btn-danger"), page.waitForNavigation()]);
     await browser.close();
-    // console.log(
-    //   "Registered successfully to the following courses:" + prettyPrintCoursesAndGroups(coursesAndPrioritizedGroups)
-    // );
+    console.log("Registered successfully to the following courses:");
     console.log(coursesAndPrioritizedGroups);
   });
 
@@ -198,7 +202,8 @@ function stringFromCoursesListArray(coursesListArray) {
   return coursesListArray.reduce((str, curr) => str.concat(curr.course + curr.priorityGroup), "");
 }
 
+// checks if all groups in a certain course were tested
+// RETURN true or false
 function allGroupsTested(courseAndGroupsElement) {
-  console.log(!courseAndGroupsElement.priorityGroups.length && !courseAndGroupsElement.restOfGroups.length);
   return !courseAndGroupsElement.priorityGroups.length && !courseAndGroupsElement.restOfGroups.length;
 }
